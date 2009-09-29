@@ -73,7 +73,10 @@ render(Path, Module, Params, #renderer_params{} = RenderParams) ->
     
     case erlydtl:compile(TemplatePath, Module, CompileParams) of
         ok -> 
-            Module:render(Params);
+            case Module:render(Params) of
+                {ok, Data} -> {ok, post_process(Data)};
+                Error -> Error
+            end;
         Error -> Error
     end;
 
@@ -144,3 +147,19 @@ init_from_compiler_options(CompilerOptions) ->
 
 generate_block_name(Name) ->
     "__" ++ Name ++ "_block".
+
+post_process(List) ->
+    post_process(List, []).
+
+post_process([H | T], Collected) when is_list(H)->
+    post_process(T, [post_process(H) | Collected]);
+
+post_process([H | T], Collected) when is_atom(H)->
+    post_process(T, [atom_to_list(H) | Collected]);
+
+post_process([H | T], Collected) ->
+    post_process(T, [H | Collected]);
+
+post_process([], Collected) ->
+    lists:reverse(Collected).
+    
