@@ -217,22 +217,18 @@ scan([H | T], Scanned, {Row, Column}, {in_identifier, Closer}) ->
 
 % internal functions
 
-append_char(Scanned, Char) ->
-    [String | Scanned1] = Scanned,
+append_char([String | Scanned1] = Scanned, Char) ->
     [setelement(3, String, [Char | element(3, String)]) | Scanned1].
 
-append_text_char(Scanned, {Row, Column}, Char) ->
-    case length(Scanned) of
-        0 ->
-            [{text, {Row, Column}, [Char]}];
+append_text_char([], {Row, Column}, Char) ->
+    [{text, {Row, Column}, [Char]}];
+
+append_text_char([Token | Scanned1] = Scanned, {Row, Column}, Char) ->
+    case element(1, Token) of
+        text ->
+            [{text, element(2, Token), [Char | element(3, Token)]} | Scanned1];
         _ ->
-            [Token | Scanned1] = Scanned,
-            case element(1, Token) of
-                text ->
-                    [{text, element(2, Token), [Char | element(3, Token)]} | Scanned1];
-                _ ->
-                    [{text, element(2, Token), [Char]} | Scanned]
-            end
+            [{text, element(2, Token), [Char]} | Scanned]
     end.
 
 char_type(Char) ->

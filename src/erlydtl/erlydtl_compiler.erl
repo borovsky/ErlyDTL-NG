@@ -119,7 +119,6 @@ compile_to_binary(File, DjangoParseTree, Context) ->
             case compile:forms(Forms, 
                     Context#dtl_context.compiler_options) of
                 {ok, Module1, Bin} -> 
-                    code:purge(Module1),
                     case code:load_binary(Module1, atom_to_list(Module1) ++ ".erl", Bin) of
                         {module, _} -> {ok, Module1, Bin};
                         _ -> {error, lists:concat(["code reload failed: ", Module1])}
@@ -333,7 +332,7 @@ string_ast(String, Context) ->
         true ->
             erl_syntax:string(String); %% less verbose AST, better for development and debugging
         _ ->
-            erl_syntax:binary([erl_syntax:binary_field(erl_syntax:integer(X)) || X <- String])
+            erl_syntax:abstract(list_to_binary(String))
     end.
 
 filter_ast(Variable, Filter, Context) ->
