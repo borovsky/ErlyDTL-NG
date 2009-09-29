@@ -375,8 +375,12 @@ run_tests() ->
                             end
                     end, GroupAcc, Assertions)
         end, [], tests()),
-    
-    io:format("Unit test failures: ~p~n", [Failures]).
+
+    case Failures of
+        [] -> io:format("Unit tests passed~n~n");
+        _ -> io:format("Unit test failures: ~p~n~n", [Failures]),
+             halt(1)
+    end.
 
 vars_to_binary(Vars) when is_list(Vars) ->
     lists:map(fun

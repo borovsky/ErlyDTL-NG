@@ -4,7 +4,7 @@ ERLC=erlc
 PARSER=src/erlydtl/erlydtl_parser
 APP=erlydtl.app
 
-all: compile
+all: compile test
 
 compile: $(PARSER).erl ebin/$(APP)
 	$(ERL) -make 

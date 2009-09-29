@@ -237,7 +237,7 @@ check_test_result("for_list", Data) ->
 check_test_result(_Name, _Data) ->
     ok.
 
-run_tests() ->    
+run_tests() ->
     io:format("Running functional tests...~n"),
     case fold_tests() of
         {N, []}->
@@ -246,6 +246,7 @@ run_tests() ->
             {ok, Msg};
         {_, Errs} ->
             io:format("Errors: ~p~n~n",[Errs]),
+            halt(1),
             failed
     end.
 

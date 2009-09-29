@@ -5,9 +5,9 @@
 -define(DISPLAY_PASSES, false).
 
 run_tests() ->
-   io:format("Running date format tests...~n"),
-   Failures = test_group_runner([
-      {
+    io:format("Running date format tests...~n"),
+    Failures = test_group_runner([
+                                  {
          "date 1",
          {1979, 7, 8}, % just a date
          [{"a", "a.m."}, {"A", "AM"}, {"d", "08"},
@@ -156,9 +156,12 @@ run_tests() ->
       { "Ordinal suffix 22", {1984,1,121}, [{"S", "st"}] }
    ]),
 
-   io:format("Date format failures: ~p~n~n", [Failures]),
-
-   ok.
+    case Failures of
+        0 -> io:format("Date format tests passed~n~n", []);
+        _ -> io:format("Date format failures: ~p~n~n", [Failures]),
+             halt(1)
+    end,
+    ok.
 
 test_group_runner([]) -> 0;
 test_group_runner([{Info, DateParam, Tests} | Rest]) ->
