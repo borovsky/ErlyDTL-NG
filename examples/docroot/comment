@@ -6,12 +6,12 @@
   </head>
   <body>
 	{# comment1 #}
-	bla
+	foo
 	{# comment2 #}
-        blue
+        bar
         {% comment %}
         Block Comment
         {% endcomment %}
-        black
+        baz
   </body>
 </html>

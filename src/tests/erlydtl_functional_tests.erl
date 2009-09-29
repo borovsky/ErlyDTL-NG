@@ -40,15 +40,30 @@
 
 test_list() ->
                                                 % order is important.
-    ["autoescape", "comment", "extends", "filters", "for", "for_list",
-     "for_tuple", "for_records",
-     "include", "if", "if_preset", "ifequal",
-     "ifnotequal", "now",
-     "var", "var_error", "cycle", %"custom_tag",
-                                                %"custom_tag_error", 
-                                                %"custom_call", 
-     "include_template", "include_path",
-     "extends_path", "extends_path2" ].
+    ["autoescape",
+     "comment",
+     "extends",
+     "filters",
+     "for",
+     "for_list",
+     "for_tuple",
+     "for_records",
+     "include",
+     "if",
+     "if_preset",
+     "ifequal",
+     "ifnotequal",
+     "now",
+     "var",
+     "var_error",
+     "cycle",
+     %"custom_tag",
+     %"custom_tag_error", 
+     %"custom_call", 
+     "include_template",
+     "include_path",
+     "extends_path",
+     "extends_path2" ].
 
 %% @spec (Name::string()) -> {CompileStatus::atom(), PresetVars::list(), 
 %%     RenderStatus::atom(), RenderVars::list()} | skip
@@ -134,6 +149,94 @@ setup(_) ->
     {ok, []}.
 
 
+check_test_result("autoescape", Data) ->
+    {match, [_, _]}
+        = re:run(Data, "This is escaped: &lt;b&gt;bold&lt;/b&gt;", [global]),
+    {match, [_]}
+        = re:run(Data, "This is not escaped: <b>bold</b>", [global]),
+    ok;
+
+check_test_result("comment", Data) ->
+    {match, [_]} = re:run(Data, "foo\\s*bar\\s*\\s*baz\\s*", [global, dotall]),
+    ok;
+
+check_test_result("extends", Data) ->
+    {match, [_]} =
+        re:run(Data, "base-barstring\\s*"
+               "base template\\s*"
+               "replacing the base title\\s*"
+               "more of base template\\s*"
+               "replacing the base content - variable: test-barstring after variable\\s*"
+               "end of base template",
+               [global,dotall]),
+    ok;
+
+check_test_result("filters", Data) ->
+    {match, [_]} =
+        re:run(Data, "Add: 2 \\+ 2 = 4\\s*"
+               "Capfirst: Capitalized\\s*"
+
+               "Centered:\\s*<pre>\\s"
+               "\\s{7}center\\s{7}\\s"
+               "</pre>\\s*"
+
+               "Date format:\\s+Thu, 24 Jul 1975 00:00:00 .{5}\\s*" % Time zone not checked
+               "DateTime format: Thu, 24 Jul 1975 07:13:01 .{5}\\s*"  % Time zone not checked
+
+               "Escape JS: \\\\\" \\\\'\\s*"
+               "First letter: f\\s*"
+               "Fix ampersands: &amp;\\s*"
+
+               "Force_escape: &lt;b&gt;&lt;/b&gt;\\s*"
+               "Joined: eins, zwei, drei\\s*"
+               "Last: t\\s*"
+               "Length: 3\\s*"
+               "Length is 2\\?: false\\s*"
+
+               "Left adjust:\\s*<pre>\\s"
+               "left\\s{16}\\s"
+               "</pre>\\s*"
+
+               "Line breaks: Line 1<br />Line 2<br />Line 3\\s*"
+               "Lowercase: lowercase\\s*"
+
+               "Right adjust:\\s*<pre>\\s"
+               "\\s{15}right\\s"
+               "</pre>\\s*"
+               
+               "Uppercase: UPPERCASE\\s*"
+               "URL Encode: Let%27s\\+go%21"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("for", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "before\\s*"
+               "<ul>\\s*"
+               "<li>1\\. apple</li>\\s*"
+               "<li>2\\. banana</li>\\s*"
+               "<li>3\\. coconut</li>\\s*"
+               "</ul>\\s*"
+               "after"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("for_list", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "More than one apple is called \"apples\". Only \\$1 each!\\s*"
+               "More than one banana is called \"bananas\". Only \\$2 each!\\s*"
+               "More than one coconut is called \"coconuts\". Only \\$500 each!\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result(_Name, _Data) ->
+    ok.
+
 run_tests() ->    
     io:format("Running functional tests...~n"),
     case fold_tests() of
@@ -157,10 +260,12 @@ run_test(Name) ->
 
 fold_tests() ->
     lists:foldl(fun(Name, {AccCount, AccErrs}) ->
-                        case test_compile_render(Name) of
+                        case catch test_compile_render(Name) of
                             ok -> 
                                 {AccCount + 1, AccErrs};
                             {error, Reason} -> 
+                                {AccCount + 1, [{Name, Reason} | AccErrs]};
+                            {'EXIT', Reason} ->
                                 {AccCount + 1, [{Name, Reason} | AccErrs]}
                         end
                 end, {0, []}, test_list()
@@ -178,7 +283,7 @@ test_compile_render(Name) ->
     io:format(" Template: ~p, ... compiling and rendering ... ", [Name]),
     case catch erlydtl_renderer:render(Name, Module, Vars, Options) of
         {ok, Data} ->
-            case RenderStatus of
+            case check_test_result(Name, iolist_to_binary(Data)) of
                 ok -> 
                     io:format("ok~n"),
                     OutFile = filename:join([templates_outdir(), filename:basename(atom_to_list(Module))]),

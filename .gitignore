@@ -3,4 +3,4 @@ ebin/
 examples/rendered_output/
 src/erlydtl/erlydtl_parser.erl
 *~
-
+*.dump
