@@ -1,4 +1,4 @@
-before varriable1
+before variable1
 {{ var1 }}
 after variable1
 <!--{{ var2 }}-->

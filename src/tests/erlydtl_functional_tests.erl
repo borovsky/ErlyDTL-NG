@@ -50,7 +50,6 @@ test_list() ->
      "for_records",
      "include",
      "if",
-     "if_preset",
      "ifequal",
      "ifnotequal",
      "now",
@@ -230,6 +229,116 @@ check_test_result("for_list", Data) ->
                "More than one apple is called \"apples\". Only \\$1 each!\\s*"
                "More than one banana is called \"bananas\". Only \\$2 each!\\s*"
                "More than one coconut is called \"coconuts\". Only \\$500 each!\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("for_tuple", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "One apple, two apples!\\s*"
+               "One banana, two bananas!\\s*"
+               "One coconut, two coconuts!\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("for_records", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "before\\s*"
+               "<ul>\\s*"
+               "<li><a href=\"http://amazon.com\">Amazon</a></li>\\s*"
+               "<li><a href=\"http://google.com\">Google</a></li>\\s*"
+               "<li><a href=\"http://microsoft.com\">Microsoft</a></li>\\s*"
+               "</ul>\\s*"
+               "after\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("include", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "Including another file: This is included! foostring1\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("if", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "One but not two:\\s+one\\s*"
+               "Two but not one:\\s+two\\s*"
+               "One:\\s+one\\s*"
+               "None:\\s+$\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("ifequal", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "if: var1=\"foo\" and var2=\"foo\" are equal\\s*"
+               "if: var1=\"foo\" and var2=\"foo\" are equal\\s*"
+               "else: var1=\"foo\" and var3=\"bar\" are not equal\\s*"
+               "if: \"foo\" and \"foo\" are equal\\s*"
+               "else: \"foo\" and \"bar\" are not equal\\s*"
+               "if: 99 and 99 are equal\\s*"
+               "else: 77 and 99 are not equal\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("ifnotequal", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "else: var1=\"foo\" and var2=\"foo\" are equal\\s*"
+               "if: var1=\"foo\" and var3=\"bar\" are not equal\\s*"
+               "if: var1=\"foo\" and var3=\"bar\" are not equal\\s*"
+               "else: \"foo\" and \"foo\" are equal\\s*"
+               "if: \"foo\" and \"bar\" are not equal\\s*"
+               "else: 99 and 99 are equal\\s*"
+               "if: 77 and 99 are not equal\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("now", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "Expected format : Thu, 21 Dec 2000 16:01:07 \\+\\d{4}\\s*"
+               "Got : [A-Z][a-z]{2}, \\d{1,2} [A-Z][a-z]{2} 2\\d{3} \\d{2}:\\d{2}:\\d{2} \\+\\d{4}\\s*"
+               "Expected format : 27th February 2008 01:24\\s*"
+               "Got : \\d{1,2}(st|nd|rd|th) [A-Z][a-z]+ \\d{4} \\d{2}:\\d{2}\\s*"
+               "Expected format : It is the 4th of September 2007\\s*"
+               "Got : It is the \\d{1,2}(st|nd|rd|th) of [A-Z][a-z]+ \\d{4}\\s*"
+               "Expected format : ''\\s*"
+               "Got : ''\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("vars", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "before variable1\\s*"
+               "foostring1\\s*"
+               "after variable1\\s*"
+               "foostring2\\s*"
+               "after variable2 \\(HTML-comment-wrapped\\)\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("cycle", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "before variable1\\s*"
+               "foostring1\\s*"
+               "after variable1\\s*"
+               "foostring2\\s*"
+               "after variable2 \\(HTML-comment-wrapped\\)\\s*"
                ,
                [global,dotall]),
     ok;
