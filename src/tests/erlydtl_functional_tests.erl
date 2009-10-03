@@ -2,13 +2,15 @@
 %%% File:      erlydtl_tests.erl
 %%% @author    Roberto Saccon <rsaccon@gmail.com> [http://rsaccon.com]
 %%% @author    Evan Miller <emmiller@gmail.com>
-%%% @copyright 2008 Roberto Saccon, Evan Miller
+%%% @author    Alexander Borovsky <alex.borovsky@gmail.com>
+%%% @copyright 2008, 2009 Roberto Saccon, Evan Miller, Alexander Borovsky
 %%% @doc       ErlyDTL test suite
 %%% @end
 %%%
 %%% The MIT License
 %%%
 %%% Copyright (c) 2007 Roberto Saccon
+%%% Copyright (c) 2009 Alexander Borovsky
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -33,6 +35,7 @@
 -module(erlydtl_functional_tests).
 -author('rsaccon@gmail.com').
 -author('emmiller@gmail.com').
+-author('alex.borovsky@gmail.com').
 
 
 %% API
@@ -56,9 +59,6 @@ test_list() ->
      "var",
      "var_error",
      "cycle",
-     %"custom_tag",
-     %"custom_tag_error", 
-     %"custom_call", 
      "include_template",
      "include_path",
      "extends_path",
@@ -156,7 +156,7 @@ check_test_result("autoescape", Data) ->
     ok;
 
 check_test_result("comment", Data) ->
-    {match, [_]} = re:run(Data, "foo\\s*bar\\s*\\s*baz\\s*", [global, dotall]),
+    {match, [_]} = re:run(Data, "^\\s*foo\\s*bar\\s*\\s*baz\\s*$", [global, dotall]),
     ok;
 
 check_test_result("extends", Data) ->
@@ -332,13 +332,83 @@ check_test_result("vars", Data) ->
     ok;
 
 check_test_result("cycle", Data) ->
+    Matcher = lists:map(
+             fun(E) ->
+                     ["<li>",
+                      integer_to_list(E),
+                      ". ",
+                      integer_to_list(E),
+                      " - ",
+                      case E rem 3 of
+                          0 -> "Cherry";
+                          1 -> "Apple";
+                          2 -> "Banana"
+                      end,
+                     "</li>\\s*"
+                      ]
+                     end,
+                     lists:seq(1, 20)),
+    
+    {match, [_]} =
+        re:run(Data,
+               lists:flatten(["before\\s*"
+                             "<ul>\\s*",
+                             Matcher,
+                             "</ul>\\s*"
+                             "after\\s*"])
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("include_template", Data) ->
     {match, [_]} =
         re:run(Data, 
-               "before variable1\\s*"
-               "foostring1\\s*"
-               "after variable1\\s*"
-               "foostring2\\s*"
-               "after variable2 \\(HTML-comment-wrapped\\)\\s*"
+               "Including another template: base-barstring\\s*"
+               "base template\\s*"
+               "base title\\s*"
+               "more of base template\\s*"
+               "base content\\s*"
+               "end of base template\\s*"
+               "test variable: test-barstring\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("include_path", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "main file\\s*"
+               "This is template 1\\.\\s*"
+               "test-barstring\\s*"
+               "This is template 2\\s*"
+               "base-barstring\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("extends_path", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "base-barstring\\s*"
+               "base2 template\\s*"
+               "replacing the base title\\s*"
+               "block title 2 from base1\\s*"
+               "more of base2 template\\s*"
+               "replacing the base content - variable: test-barstring after variable\\s*"
+               "block content2 in base2, should pass through\\s*"
+               "end of base2 template\\s*"
+               ,
+               [global,dotall]),
+    ok;
+
+check_test_result("extends_path2", Data) ->
+    {match, [_]} =
+        re:run(Data, 
+               "pre content\\s*"
+               "start_content\\s*"
+               "This is include1\\s*"
+               "end_content\\s*"
+               "post\\s*"
                ,
                [global,dotall]),
     ok;
