@@ -53,26 +53,7 @@ scan(Template) ->
     scan(Template, [], {1, 1}, in_text).
 
 scan([], Scanned, _, in_text) ->
-    {ok, lists:reverse(lists:map(
-                fun
-                    ({identifier, Pos, String}) ->
-                        RevString = lists:reverse(String),
-                        Keywords = ["for", "endfor", "in", "include", "block", "endblock",
-                            "extends", "autoescape", "endautoescape", "if", "else", "endif",
-                            "not", "or", "and", "comment", "endcomment", "cycle", "firstof",
-                            "ifchanged", "ifequal", "endifequal", "ifnotequal", "endifnotequal",
-                            "now", "regroup", "spaceless", "endspaceless", "ssi", "templatetag",
-                            "load", "call", "with"], 
-                        Type = case lists:member(RevString, Keywords) of
-                            true ->
-                                list_to_atom(RevString ++ "_keyword");
-                            _ ->
-                                identifier
-                        end,
-                        {Type, Pos, RevString};
-                    ({Type, Pos, String}) ->
-                        {Type, Pos, lists:reverse(String)} 
-                end, Scanned))};
+    {ok, lists:reverse(lists:map(fun post_process/1, Scanned))};
 
 scan([], _Scanned, _, {in_comment, _}) ->
     {error, "Reached end of file inside a comment."};
@@ -80,12 +61,8 @@ scan([], _Scanned, _, {in_comment, _}) ->
 scan([], _Scanned, _, _) ->
     {error, "Reached end of file inside a code block."};
 
-scan("<!--{{" ++ T, Scanned, {Row, Column}, in_text) ->
-    scan(T, [{open_var, {Row, Column}, "<!--{{"} | Scanned], {Row, Column + length("<!--{{")}, {in_code, "}}-->"});
 
-scan("{{" ++ T, Scanned, {Row, Column}, in_text) ->
-    scan(T, [{open_var, {Row, Column}, "{{"} | Scanned], {Row, Column + 2}, {in_code, "}}"});
-
+% Comments traversal
 scan("<!--{#" ++ T, Scanned, {Row, Column}, in_text) ->
     scan(T, Scanned, {Row, Column + length("<!--{#")}, {in_comment, "#}-->"});
 
@@ -98,6 +75,18 @@ scan("#}-->" ++ T, Scanned, {Row, Column}, {in_comment, "#}-->"}) ->
 scan("#}" ++ T, Scanned, {Row, Column}, {in_comment, "#}"}) ->
     scan(T, Scanned, {Row, Column + 2}, in_text);
 
+scan([_ | T], Scanned, {Row, Column}, {in_comment, Closer}) ->
+    scan(T, Scanned, {Row, Column + 1}, {in_comment, Closer});
+
+
+
+% Code tags traversal
+scan("<!--{{" ++ T, Scanned, {Row, Column}, in_text) ->
+    scan(T, [{open_var, {Row, Column}, "<!--{{"} | Scanned], {Row, Column + length("<!--{{")}, {in_code, "}}-->"});
+
+scan("{{" ++ T, Scanned, {Row, Column}, in_text) ->
+    scan(T, [{open_var, {Row, Column}, "{{"} | Scanned], {Row, Column + 2}, {in_code, "}}"});
+
 scan("<!--{%" ++ T, Scanned, {Row, Column}, in_text) ->
     scan(T, [{open_tag, {Row, Column}, lists:reverse("<!--{%")} | Scanned], 
         {Row, Column + length("<!--{%")}, {in_code, "%}-->"});
@@ -106,14 +95,28 @@ scan("{%" ++ T, Scanned, {Row, Column}, in_text) ->
     scan(T, [{open_tag, {Row, Column}, lists:reverse("{%")} | Scanned], 
         {Row, Column + 2}, {in_code, "%}"});
 
-scan([_ | T], Scanned, {Row, Column}, {in_comment, Closer}) ->
-    scan(T, Scanned, {Row, Column + 1}, {in_comment, Closer});
+scan("}}-->" ++ T, Scanned, {Row, Column}, {_, "}}-->"}) ->
+    scan(T, [{close_var, {Row, Column}, lists:reverse("}}-->")} | Scanned], 
+        {Row, Column + 2}, in_text);
 
+scan("}}" ++ T, Scanned, {Row, Column}, {_, "}}"}) ->
+    scan(T, [{close_var, {Row, Column}, "}}"} | Scanned], {Row, Column + 2}, in_text);
+
+scan("%}-->" ++ T, Scanned, {Row, Column}, {_, "%}-->"}) ->
+    scan(T, [{close_tag, {Row, Column}, lists:reverse("%}-->")} | Scanned], 
+        {Row, Column + 2}, in_text);
+
+scan("%}" ++ T, Scanned, {Row, Column}, {_, "%}"}) ->
+    scan(T, [{close_tag, {Row, Column}, lists:reverse("%}")} | Scanned], 
+        {Row, Column + 2}, in_text);
+
+% Text traversal
 scan("\n" ++ T, Scanned, {Row, Column}, in_text) ->
     scan(T, append_text_char(Scanned, {Row, Column}, $\n), {Row + 1, 1}, in_text);
 
 scan([H | T], Scanned, {Row, Column}, in_text) ->
     scan(T, append_text_char(Scanned, {Row, Column}, H), {Row, Column + 1}, in_text);
+
 
 scan("\"" ++ T, Scanned, {Row, Column}, {in_code, Closer}) ->
     scan(T, [{string_literal, {Row, Column}, "\""} | Scanned], {Row, Column + 1}, {in_double_quote, Closer});
@@ -172,21 +175,6 @@ scan("." ++ T, Scanned, {Row, Column}, {_, Closer}) ->
 scan(" " ++ T, Scanned, {Row, Column}, {_, Closer}) ->
     scan(T, Scanned, {Row, Column + 1}, {in_code, Closer});
 
-scan("}}-->" ++ T, Scanned, {Row, Column}, {_, "}}-->"}) ->
-    scan(T, [{close_var, {Row, Column}, lists:reverse("}}-->")} | Scanned], 
-        {Row, Column + 2}, in_text);
-
-scan("}}" ++ T, Scanned, {Row, Column}, {_, "}}"}) ->
-    scan(T, [{close_var, {Row, Column}, "}}"} | Scanned], {Row, Column + 2}, in_text);
-
-scan("%}-->" ++ T, Scanned, {Row, Column}, {_, "%}-->"}) ->
-    scan(T, [{close_tag, {Row, Column}, lists:reverse("%}-->")} | Scanned], 
-        {Row, Column + 2}, in_text);
-
-scan("%}" ++ T, Scanned, {Row, Column}, {_, "%}"}) ->
-    scan(T, [{close_tag, {Row, Column}, lists:reverse("%}")} | Scanned], 
-        {Row, Column + 2}, in_text);
-
 scan([H | T], Scanned, {Row, Column}, {in_code, Closer}) ->
     case char_type(H) of
         letter_underscore ->
@@ -240,3 +228,50 @@ char_type(Char) ->
         _ ->
             undefined
     end.
+
+
+post_process({identifier, Pos, String}) ->
+    RevString = lists:reverse(String),
+    Keywords = ["for",
+                "endfor",
+                "in",
+                "include",
+                "block",
+                "endblock",
+                "extends",
+                "autoescape",
+                "endautoescape",
+                "if",
+                "else",
+                "endif",
+                "not",
+                "or",
+                "and",
+                "comment",
+                "endcomment",
+                "cycle",
+                "firstof",
+                "ifchanged",
+                "ifequal",
+                "endifequal",
+                "ifnotequal",
+                "endifnotequal",
+                "now",
+                "regroup",
+                "spaceless",
+                "endspaceless",
+                "ssi",
+                "templatetag",
+                "load",
+                "call",
+                "with"
+               ], 
+    Type = case lists:member(RevString, Keywords) of
+               true ->
+                   list_to_atom(RevString ++ "_keyword");
+               _ ->
+                   identifier
+           end,
+    {Type, Pos, RevString};
+post_process({Type, Pos, String}) ->
+    {Type, Pos, lists:reverse(String)}.
