@@ -43,19 +43,15 @@
 
 test_list() ->
                                                 % order is important.
-    ["autoescape",
+    [
      "comment",
      "extends",
-     "filters",
      "for",
      "for_list",
      "for_tuple",
      "for_records",
      "include",
      "if",
-     "ifequal",
-     "ifnotequal",
-     "now",
      "var",
      "var_error",
      "cycle",
@@ -69,67 +65,51 @@ test_list() ->
 %% @doc
 %% @end 
 %%--------------------------------------------------------------------
-setup("autoescape") ->
-    RenderVars = [{var1, "<b>bold</b>"}],
-    {ok, RenderVars};  
 setup("extends") ->
-    RenderVars = [{base_var, "base-barstring"}, {test_var, "test-barstring"}],
-    {ok, RenderVars};
-setup("filters") ->
-    RenderVars = [
-                  {date_var1, {1975,7,24}},
-                  {datetime_var1, {{1975,7,24}, {7,13,1}}},
-                  {'list', ["eins", "zwei", "drei"]}
-                 ],
+    RenderVars = [{"base_var", "base-barstring"}, {"test_var", "test-barstring"}],
     {ok, RenderVars};
 setup("for") ->
-    RenderVars = [{fruit_list, ["apple", "banana", "coconut"]}],
+    RenderVars = [{"fruit_list", ["apple", "banana", "coconut"]}],
     {ok, RenderVars};
 setup("for_list") ->
-    RenderVars = [{fruit_list, [["apple", "apples", "$1"], ["banana", "bananas", "$2"], ["coconut", "coconuts", "$500"]]}],
+    RenderVars = [{"fruit_list", [["apple", "apples", "$1"], ["banana", "bananas", "$2"], ["coconut", "coconuts", "$500"]]}],
     {ok, RenderVars};
 setup("for_tuple") ->
-    RenderVars = [{fruit_list, [{"apple", "apples"}, {"banana", "bananas"}, {"coconut", "coconuts"}]}],
+    RenderVars = [{"fruit_list", [{"apple", "apples"}, {"banana", "bananas"}, {"coconut", "coconuts"}]}],
     {ok, RenderVars};
 setup("for_records") ->
-    Link1 = [{name, "Amazon"}, {url, "http://amazon.com"}],
-    Link2 = [{name, "Google"}, {url, "http://google.com"}],
-    Link3 = [{name, "Microsoft"}, {url, "http://microsoft.com"}],
-    RenderVars = [{link_list, [Link1, Link2, Link3]}],
+    Link1 = [{"name", "Amazon"}, {"url", "http://amazon.com"}],
+    Link2 = [{"name", "Google"}, {"url", "http://google.com"}],
+    Link3 = [{"name", "Microsoft"}, {"url", "http://microsoft.com"}],
+    RenderVars = [{"link_list", [Link1, Link2, Link3]}],
     {ok, RenderVars};  
 setup("include") ->
-    RenderVars = [{var1, "foostring1"}, {var2, "foostring2"}],
+    RenderVars = [{"var1", "foostring1"}, {"var2", "foostring2"}],
     {ok, RenderVars};
 setup("if") ->
-    RenderVars = [{var1, "something"}],
+    RenderVars = [{"var1", "something"}],
     {ok, RenderVars}; 
-setup("ifequal") ->
-    RenderVars = [{var1, "foo"}, {var2, "foo"}, {var3, "bar"}],
-    {ok, RenderVars};      
-setup("ifnotequal") ->
-    RenderVars = [{var1, "foo"}, {var2, "foo"}, {var3, "bar"}],
-    {ok, RenderVars};        
 setup("var") ->
-    RenderVars = [{var1, "foostring1"}, {var2, "foostring2"}, {var_not_used, "foostring3"}],
+    RenderVars = [{"var1", "foostring1"}, {"var2", "foostring2"}, {"var_not_used", "foostring3"}],
     {ok, RenderVars};
 setup("var_error") ->
-    RenderVars = [{var1, "foostring1"}],   
+    RenderVars = [{"var1", "foostring1"}],   
     {error, RenderVars};
 setup("cycle") ->
-    RenderVars = [{test, [integer_to_list(X) || X <- lists:seq(1, 20)]},
-                  {a, "Apple"}, {b, "Banana"}, {c, "Cherry"}],
+    RenderVars = [{"test", [integer_to_list(X) || X <- lists:seq(1, 20)]},
+                  {"a", "Apple"}, {"b", "Banana"}, {"c", "Cherry"}],
     {ok, RenderVars};
 setup("include_template") ->
-    RenderVars = [{base_var, "base-barstring"}, {test_var, "test-barstring"}],
+    RenderVars = [{"base_var", "base-barstring"}, {"test_var", "test-barstring"}],
     {ok, RenderVars};
 setup("include_path") ->
-    RenderVars = [{base_var, "base-barstring"}, {test_var, "test-barstring"}],
+    RenderVars = [{"base_var", "base-barstring"}, {"test_var", "test-barstring"}],
     {ok, RenderVars};
 setup("extends_path") ->
-    RenderVars = [{base_var, "base-barstring"}, {test_var, "test-barstring"}],
+    RenderVars = [{"base_var", "base-barstring"}, {"test_var", "test-barstring"}],
     {ok, RenderVars};
 setup("extends_path2") ->
-    RenderVars = [{base_var, "base-barstring"}, {test_var, "test-barstring"}],
+    RenderVars = [{"base_var", "base-barstring"}, {"test_var", "test-barstring"}],
     {ok, RenderVars};
 
 
@@ -496,7 +476,7 @@ test_compile_render(Name) ->
             
             {error, "failed invoking render method in " ++ atom_to_list(Module)};
         Other ->
-            {error, io_lib:format("Other result: ~p~n", [Other])}
+            {error, iolist_to_binary(io_lib:format("Other result: ~p~n", [Other]))}
     end.
 
 templates_docroot() ->

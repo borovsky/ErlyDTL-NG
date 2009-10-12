@@ -1,8 +1,9 @@
-%%%-------------------------------------------------------------------
+
 %%% File:      erlydtl_scanner.erl
 %%% @author    Roberto Saccon <rsaccon@gmail.com> [http://rsaccon.com]
 %%% @author    Evan Miller <emmiller@gmail.com>
-%%% @copyright 2008 Roberto Saccon, Evan Miller
+%%% @author    Alexander Borovsky <alex.borovsky@gmail.com>
+%%% @copyright 2008, 2009 Roberto Saccon, Evan Miller, Alexander Borovsky
 %%% @doc 
 %%% Template language scanner
 %%% @end  
@@ -34,6 +35,7 @@
 -module(erlydtl_scanner).
 -author('rsaccon@gmail.com').
 -author('emmiller@gmail.com').
+-author('alex.borovsky@gmail.com').
 
 -export([scan/1]). 
 
@@ -80,7 +82,7 @@ scan([_ | T], Scanned, {Row, Column}, {in_comment, Closer}) ->
 
 
 
-% Code tags traversal
+% Code tags scanning
 scan("<!--{{" ++ T, Scanned, {Row, Column}, in_text) ->
     scan(T, [{open_var, {Row, Column}, "<!--{{"} | Scanned], {Row, Column + length("<!--{{")}, {in_code, "}}-->"});
 
@@ -110,7 +112,89 @@ scan("%}" ++ T, Scanned, {Row, Column}, {_, "%}"}) ->
     scan(T, [{close_tag, {Row, Column}, lists:reverse("%}")} | Scanned], 
         {Row, Column + 2}, in_text);
 
-% Text traversal
+% Tag name scanning
+scan(" " ++ T, Scanned, {Row, Column}, {in_code, Closer}) ->
+    scan(T, Scanned,  {Row, Column + 1}, {in_code, Closer});
+
+scan(" " ++ T, [H | Scanned], {Row, Column}, {in_identifier, Closer}) ->
+    scan(T, [process_tag_name(H) | Scanned],  {Row, Column + 1}, {in_expression, Closer});
+
+scan([H | T], Scanned, {Row, Column}, {in_code, Closer}) ->
+    case char_type(H) of
+        letter ->
+            scan(T, [{identifier, {Row, Column}, [H]} | Scanned], {Row, Column + 1}, {in_identifier, Closer});
+        _ ->
+            scan(T, [{expression, {Row, Column}, [H]} | Scanned], {Row, Column + 1}, {in_expression, Closer})
+    end;
+
+scan([H | T], [{identifier, Pos, Identifier}| Scanned], {Row, Column}, {in_identifier, Closer}) ->
+    case char_type(H) of
+        letter ->
+            scan(T, [{identifier, Pos, [H | Identifier]} | Scanned], {Row, Column + 1}, {in_identifier, Closer});
+        _ ->
+            scan(T, [{expression, Pos, [H | Identifier]} | Scanned], {Row, Column + 1}, {in_expression, Closer})
+    end;
+
+scan(Input, [{for_keyword, _, _} | _] = Scanned, Pos, {in_expression, Closer}) ->
+    scan(Input, Scanned, Pos, {in_for_list, Closer});
+
+scan(Input, [{block_keyword, _, _} | _] = Scanned, Pos, {in_expression, Closer}) ->
+    scan(Input, Scanned, Pos, {in_block, Closer});
+
+% For tag scanning
+scan(" " ++ T, Scanned, {Row, Column}, {in_for_list, Closer}) ->
+    scan(T, Scanned, {Row, Column + 1}, {in_for_list, Closer});
+
+scan(" " ++ T, Scanned, {Row, Column}, {in_for_list_identifier, Closer}) ->
+    scan(T, Scanned, {Row, Column + 1}, {in_for_list, Closer});
+
+scan("," ++ T, Scanned, {Row, Column}, {in_for_list_identifier, Closer}) ->
+    scan(T, [{comma, {Row, Column}, ","} | Scanned], {Row, Column + 1}, {in_for_list, Closer});
+
+scan("in " ++ T, Scanned, {Row, Column}, {in_for_list_identifier, Closer}) ->
+    scan(T, [{in_keyword, {Row, Column}, lists:reverse("in ")} | Scanned], {Row, Column + 3}, {in_expression, Closer});
+
+scan("in " ++ T, Scanned, {Row, Column}, {in_for_list, Closer}) ->
+    scan(T, [{in_keyword, {Row, Column}, lists:reverse("in ")} | Scanned], {Row, Column + 3}, {in_expression, Closer});
+
+scan([H | T], Scanned, {Row, Column}, {in_for_list, Closer}) ->
+    case char_type(H) of
+        Type when (Type == letter) or (Type == underscore) ->
+            scan(T, [{identifier, {Row, Column}, [H]} | Scanned], {Row, Column + 1}, {in_for_list_identifier, Closer});
+        _ ->
+            {error, io:format("Error while parsing for list at ~p", [{Row, Column}])}
+    end;
+
+scan([H | T], [{identifier, Pos, String} | Scanned], {Row, Column}, {in_for_list_identifier, Closer}) ->
+    case char_type(H) of
+        Type when ((Type == letter) or (Type == underscore) or (Type == digit)) ->
+            scan(T, [{identifier, Pos, [H | String]} | Scanned], {Row, Column + 1}, {in_for_list_identifier, Closer});
+        _ ->
+            {error, io:format("Error while parsing for list at ~p", [{Row, Column}])}
+    end;
+
+% Block scanning
+scan(" " ++ T, Scanned, {Row, Column}, {in_block_identifier, Closer}) ->
+    scan(T, Scanned, {Row, Column + 1}, {in_block, Closer});
+
+scan([H | T], Scanned, {Row, Column}, {in_block, Closer}) ->
+    case char_type(H) of
+        Type when (Type == letter) or (Type == underscore) ->
+            scan(T, [{identifier, {Row, Column}, [H]} | Scanned], {Row, Column + 1}, {in_block_identifier, Closer});
+        _ ->
+            {error, io:format("Error while parsing for list at ~p", [{Row, Column}])}
+    end;
+
+scan([H | T], [{identifier, Pos, String} | Scanned], {Row, Column}, {in_block_identifier, Closer}) ->
+    case char_type(H) of
+        Type when ((Type == letter) or (Type == underscore) or (Type == digit)) ->
+            scan(T, [{identifier, Pos, [H | String]} | Scanned], {Row, Column + 1}, {in_block_identifier, Closer});
+        _ ->
+            {error, io:format("Error while parsing for list at ~p", [{Row, Column}])}
+    end;
+
+
+% Text scanning
 scan("\n" ++ T, Scanned, {Row, Column}, in_text) ->
     scan(T, append_text_char(Scanned, {Row, Column}, $\n), {Row + 1, 1}, in_text);
 
@@ -118,17 +202,12 @@ scan([H | T], Scanned, {Row, Column}, in_text) ->
     scan(T, append_text_char(Scanned, {Row, Column}, H), {Row, Column + 1}, in_text);
 
 
-scan("\"" ++ T, Scanned, {Row, Column}, {in_code, Closer}) ->
-    scan(T, [{string_literal, {Row, Column}, "\""} | Scanned], {Row, Column + 1}, {in_double_quote, Closer});
+% Expression scanning
+scan("\"" ++ T, Scanned, {Row, Column}, {in_expression, Closer}) ->
+    scan(T, append_expression_char(Scanned, {Row, Column}, $"), {Row, Column + 1}, {in_double_quote, Closer});
 
-scan("\"" ++ T, Scanned, {Row, Column}, {in_identifier, Closer}) ->
-    scan(T, [{string_literal, {Row, Column}, "\""} | Scanned], {Row, Column + 1}, {in_double_quote, Closer});
-
-scan("\'" ++ T, Scanned, {Row, Column}, {in_code, Closer}) ->
-    scan(T, [{string_literal, {Row, Column}, "\""} | Scanned], {Row, Column + 1}, {in_single_quote, Closer});
-
-scan("\'" ++ T, Scanned, {Row, Column}, {in_identifier, Closer}) ->
-    scan(T, [{string_literal, {Row, Column}, "\""} | Scanned], {Row, Column + 1}, {in_single_quote, Closer});
+scan("\'" ++ T, Scanned, {Row, Column}, {in_expression, Closer}) ->
+    scan(T, append_expression_char(Scanned, {Row, Column}, $'), {Row, Column + 1}, {in_single_quote, Closer});
 
 scan([$\\ | T], Scanned, {Row, Column}, {in_double_quote, Closer}) ->
     scan(T, append_char(Scanned, $\\), {Row, Column + 1}, {in_double_quote_slash, Closer});
@@ -142,13 +221,11 @@ scan([$\\ | T], Scanned, {Row, Column}, {in_single_quote, Closer}) ->
 scan([H | T], Scanned, {Row, Column}, {in_single_quote_slash, Closer}) ->
     scan(T, append_char(Scanned, H), {Row, Column + 1}, {in_single_quote, Closer});
 
-% end quote
 scan("\"" ++ T, Scanned, {Row, Column}, {in_double_quote, Closer}) ->
-    scan(T, append_char(Scanned, 34), {Row, Column + 1}, {in_code, Closer});
+    scan(T, append_char(Scanned, $"), {Row, Column + 1}, {in_expression, Closer});
 
-% treat single quotes the same as double quotes
 scan("\'" ++ T, Scanned, {Row, Column}, {in_single_quote, Closer}) ->
-    scan(T, append_char(Scanned, 34), {Row, Column + 1}, {in_code, Closer});
+    scan(T, append_char(Scanned, $'), {Row, Column + 1}, {in_expression, Closer});
 
 scan([H | T], Scanned, {Row, Column}, {in_double_quote, Closer}) ->
     scan(T, append_char(Scanned, H), {Row, Column + 1}, {in_double_quote, Closer});
@@ -156,52 +233,8 @@ scan([H | T], Scanned, {Row, Column}, {in_double_quote, Closer}) ->
 scan([H | T], Scanned, {Row, Column}, {in_single_quote, Closer}) ->
     scan(T, append_char(Scanned, H), {Row, Column + 1}, {in_single_quote, Closer});
 
-
-scan("," ++ T, Scanned, {Row, Column}, {_, Closer}) ->
-    scan(T, [{comma, {Row, Column}, ","} | Scanned], {Row, Column + 1}, {in_code, Closer});
-
-scan("|" ++ T, Scanned, {Row, Column}, {_, Closer}) ->
-    scan(T, [{pipe, {Row, Column}, "|"} | Scanned], {Row, Column + 1}, {in_code, Closer});
-
-scan("=" ++ T, Scanned, {Row, Column}, {_, Closer}) ->
-    scan(T, [{equal, {Row, Column}, "="} | Scanned], {Row, Column + 1}, {in_code, Closer});
-
-scan(":" ++ T, Scanned, {Row, Column}, {_, Closer}) ->
-    scan(T, [{colon, {Row, Column}, ":"} | Scanned], {Row, Column + 1}, {in_code, Closer});
-
-scan("." ++ T, Scanned, {Row, Column}, {_, Closer}) ->
-    scan(T, [{dot, {Row, Column}, "."} | Scanned], {Row, Column + 1}, {in_code, Closer});
-
-scan(" " ++ T, Scanned, {Row, Column}, {_, Closer}) ->
-    scan(T, Scanned, {Row, Column + 1}, {in_code, Closer});
-
-scan([H | T], Scanned, {Row, Column}, {in_code, Closer}) ->
-    case char_type(H) of
-        letter_underscore ->
-            scan(T, [{identifier, {Row, Column}, [H]} | Scanned], {Row, Column + 1}, {in_identifier, Closer});
-        digit ->
-            scan(T, [{number_literal, {Row, Column}, [H]} | Scanned], {Row, Column + 1}, {in_number, Closer});
-        _ ->
-            {error, io_lib:format("Illegal character line ~p column ~p", [Row, Column])}
-    end;
-
-scan([H | T], Scanned, {Row, Column}, {in_number, Closer}) ->
-    case char_type(H) of
-        digit ->
-            scan(T, append_char(Scanned, H), {Row, Column + 1}, {in_number, Closer});
-        _ ->
-            {error, io_lib:format("Illegal character line ~p column ~p", [Row, Column])}
-    end;
-
-scan([H | T], Scanned, {Row, Column}, {in_identifier, Closer}) ->
-    case char_type(H) of
-        letter_underscore ->
-            scan(T, append_char(Scanned, H), {Row, Column + 1}, {in_identifier, Closer});
-        digit ->
-            scan(T, append_char(Scanned, H), {Row, Column + 1}, {in_identifier, Closer});
-        _ ->
-            {error, io_lib:format("Illegal character line ~p column ~p", [Row, Column])}
-    end.
+scan([H | T], Scanned, {Row, Column}, {in_expression, Closer}) ->
+    scan(T, append_expression_char(Scanned, {Row, Column}, H), {Row, Column + 1}, {in_expression, Closer}).
 
 % internal functions
 
@@ -217,59 +250,45 @@ append_text_char([{text, Pos, String} | Scanned1], _, Char) ->
 append_text_char(Scanned, Pos, Char) ->
     [{text, Pos, [Char]} | Scanned].
 
+append_expression_char([{expression, Pos, String} | Scanned], _, Char) ->
+    [{expression, Pos, [Char | String]} | Scanned];
+
+append_expression_char(Scanned, Pos, Char) ->
+    [{expression, Pos, [Char]} | Scanned].
+
 char_type(Char) ->
     case Char of 
-        C when ((C >= $a) and (C =< $z)) or ((C >= $A) and (C =< $Z)) or (C == $_) ->
-            letter_underscore;
+        C when ((C >= $a) and (C =< $z)) or ((C >= $A) and (C =< $Z)) ->
+            letter;
+        $_ -> underscore;
         C when ((C >= $0) and (C =< $9)) ->
             digit;
         _ ->
             undefined
     end.
 
-
-post_process({identifier, Pos, String}) ->
+process_tag_name({identifier, Pos, String}) ->
     RevString = lists:reverse(String),
-    Keywords = ["for",
+    TagNames = ["for",
                 "endfor",
-                "in",
                 "include",
                 "block",
                 "endblock",
                 "extends",
-                "autoescape",
-                "endautoescape",
                 "if",
                 "else",
                 "endif",
-                "not",
-                "or",
-                "and",
                 "comment",
                 "endcomment",
-                "cycle",
-                "firstof",
-                "ifchanged",
-                "ifequal",
-                "endifequal",
-                "ifnotequal",
-                "endifnotequal",
-                "now",
-                "regroup",
-                "spaceless",
-                "endspaceless",
-                "ssi",
-                "templatetag",
-                "load",
-                "call",
-                "with"
-               ], 
-    Type = case lists:member(RevString, Keywords) of
+                "cycle"
+               ],
+    Type = case lists:member(RevString, TagNames) of
                true ->
                    list_to_atom(RevString ++ "_keyword");
                _ ->
-                   identifier
+                   expression
            end,
-    {Type, Pos, RevString};
+    {Type, Pos, String}.
+
 post_process({Type, Pos, String}) ->
     {Type, Pos, lists:reverse(String)}.

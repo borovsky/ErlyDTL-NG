@@ -77,8 +77,8 @@ compile(Binary, Module, Options) when is_binary(Binary) ->
 compile(File, Module, Options) ->  
     Context = init_dtl_context(File, Module, Options),
     case parse(File, Context) of  
-        {ok, DjangoParseTree} ->
-            case compile_to_binary(File, DjangoParseTree, Context) of
+        {ok, ParseTree} ->
+            case compile_to_binary(File, ParseTree, Context) of
                 {ok, Module1, Bin} ->
                     case proplists:get_value(out_dir, Options) of
                         undefined ->
@@ -213,78 +213,48 @@ body_ast([{extends, File} | ThisParseTree], Context) ->
                               Ast
                       end, erl_syntax:variable("Variables"), ThisParseTree),
     
-    FileAst = resolve_variable_or_value_ast(File, Context),
+    FileAst = resolve_expression(File, Context),
     include_ast(FileAst, AddBlocksAsts, Context);
  
     
-body_ast(DjangoParseTree, Context) ->
+body_ast(ParseTree, Context) ->
     AstInfoList = lists:map(
-        fun
-            ({'block', {identifier, _, Name}, Contents}) ->
-                block_ast(Name, Contents, Context);
-            ({'comment', _Contents}) ->
-                empty_ast();
-            ({'date', 'now', {string_literal, _Pos, FormatString}}) ->
-                now_ast(FormatString, Context);
-            ({'autoescape', {identifier, _, OnOrOff}, Contents}) ->
-                body_ast(Contents, Context#dtl_context{auto_escape = list_to_atom(OnOrOff)});
-            ({'text', _Pos, String}) -> 
-                string_ast(String, Context);
-            ({'string_literal', _Pos, String}) ->
-                auto_escape(erl_syntax:string(unescape_string_literal(String)), Context);
-            ({'number_literal', _Pos, Number}) ->
-                string_ast(Number, Context);
-            ({'attribute', _} = Variable) ->
-                {Ast, _VarName} = resolve_variable_ast(Variable, Context),
-                format(Ast, Context);
-            ({'variable', _} = Variable) ->
-                {Ast, _VarName} = resolve_variable_ast(Variable, Context),
-                format(Ast, Context);              
-            ({'include', Path}) ->
-                PathAst = resolve_variable_or_value_ast(Path, Context),
-                include_ast(PathAst, Context);
-            ({'if', {'not', Variable}, Contents}) ->
-                IfAstInfo = empty_ast(),
-                ElseAstInfo = body_ast(Contents, Context),
-                ifelse_ast(Variable, IfAstInfo, ElseAstInfo, Context);
-            ({'if', Variable, Contents}) ->
-                IfAstInfo = body_ast(Contents, Context),
-                ElseAstInfo = empty_ast(),
-                ifelse_ast(Variable, IfAstInfo, ElseAstInfo, Context);
-            ({'ifelse', {'not', Variable}, IfContents, ElseContents}) ->
-                IfAstInfo = body_ast(ElseContents, Context),
-                ElseAstInfo = body_ast(IfContents, Context),
-                ifelse_ast(Variable, IfAstInfo, ElseAstInfo, Context);                  
-            ({'ifelse', Variable, IfContents, ElseContents}) ->
-                IfAstInfo = body_ast(IfContents, Context),
-                ElseAstInfo = body_ast(ElseContents, Context),
-                ifelse_ast(Variable, IfAstInfo, ElseAstInfo, Context);
-            ({'ifequal', Args, Contents}) ->
-                IfAstInfo = body_ast(Contents, Context),
-                ElseAstInfo = empty_ast(),
-                ifequalelse_ast(Args, IfAstInfo, ElseAstInfo, Context);
-            ({'ifequalelse', Args, IfContents, ElseContents}) ->
-                IfAstInfo = body_ast(IfContents, Context), 
-                ElseAstInfo = body_ast(ElseContents, Context),
-                ifequalelse_ast(Args, IfAstInfo, ElseAstInfo, Context);                
-            ({'ifnotequal', Args, Contents}) ->
-                IfAstInfo = empty_ast(),
-                ElseAstInfo = body_ast(Contents, Context),
-                ifequalelse_ast(Args, IfAstInfo, ElseAstInfo, Context);
-            ({'ifnotequalelse', Args, IfContents, ElseContents}) ->
-                IfAstInfo = body_ast(ElseContents, Context),
-                ElseAstInfo = body_ast(IfContents, Context),
-                ifequalelse_ast(Args, IfAstInfo, ElseAstInfo, Context);
-            ({'apply_filter', Variable, Filter}) ->
-                filter_ast(Variable, Filter, Context);
-            ({'for', {'in', IteratorList, Variable}, Contents}) ->
-                for_loop_ast(IteratorList, Variable, Contents, Context);
-            ({'cycle', Names}) ->
-                cycle_ast(Names, Context);
-            ({'cycle_compat', Names}) ->
-                cycle_compat_ast(Names, Context)
-        end, DjangoParseTree),   
+        fun(Ast) -> process_body_ast(Ast, Context) end, ParseTree),   
     erl_syntax:list(AstInfoList).
+
+process_body_ast({'block', {identifier, _, Name}, Contents}, Context) ->
+    block_ast(Name, Contents, Context);
+
+process_body_ast({'comment', _Contents}, _Context) ->
+    empty_ast();
+
+process_body_ast({'text', _Pos, String}, Context) -> 
+    string_ast(String, Context);
+
+process_body_ast({'expression', _, _} = Expression, Context) ->
+    Ast = resolve_expression(Expression, Context),
+    format(Ast, Context);              
+
+process_body_ast({'include', Path}, Context) ->
+    PathAst = resolve_expression(Path, Context),
+    include_ast(PathAst, Context);
+
+process_body_ast({'if', Expression, Contents}, Context) ->
+    IfAstInfo = body_ast(Contents, Context),
+    ElseAstInfo = empty_ast(),
+    ifelse_ast(Expression, IfAstInfo, ElseAstInfo, Context);
+
+process_body_ast({'ifelse', Variable, IfContents, ElseContents}, Context) ->
+    IfAstInfo = body_ast(IfContents, Context),
+    ElseAstInfo = body_ast(ElseContents, Context),
+    ifelse_ast(Variable, IfAstInfo, ElseAstInfo, Context);
+
+process_body_ast({'for', {'in', IteratorList, Expression}, Contents}, Context) ->
+    for_loop_ast(IteratorList, Expression, Contents, Context);
+
+process_body_ast({'cycle', Names}, Context) ->
+    cycle_ast(Names, Context).
+
 
 block_ast(Name, Contents, Context) ->
     NameAst = erl_syntax:string(Name),
@@ -314,15 +284,6 @@ block_ast(Name, Contents, Context) ->
     FalseAst = erl_syntax:clause([erl_syntax:atom(false)], none, FalseCaseAst),
     erl_syntax:case_expr(BlockCheckAst, [TrueAst, FalseAst]).
 
-resolve_variable_or_value_ast({string_literal, _, Literal}, _Context) ->
-    erl_syntax:string(unescape_string_literal(Literal));
-resolve_variable_or_value_ast({number_literal, _, Literal}, _Context) ->
-    erl_syntax:integer(list_to_integer(Literal));
-resolve_variable_or_value_ast(Variable, Context) ->
-    {Ast, _VarName} = resolve_variable_ast(Variable, Context),
-    Ast.
-
-
 empty_ast() ->
     erl_syntax:list([]).
 
@@ -335,90 +296,10 @@ string_ast(String, Context) ->
             erl_syntax:abstract(list_to_binary(String))
     end.
 
-filter_ast(Variable, Filter, Context) ->
-    % the escape filter is special; it is always applied last, so we have to go digging for it
-
-    % AutoEscape = 'did' means we (will have) decided whether to escape the current variable,
-    % so don't do any more escaping
-    UnescapedAst = filter_ast_noescape(Variable, Filter, 
-        Context#dtl_context{auto_escape = did}),
-    case search_for_escape_filter(Variable, Filter, Context) of
-        on ->
-            erl_syntax:application(
-                    erl_syntax:atom(erlydtl_filters), 
-                    erl_syntax:atom(force_escape), 
-                    [UnescapedAst]);
-        _ ->
-            UnescapedAst
-    end.
-
-filter_ast_noescape(Variable, [{identifier, _, "escape"}], Context) ->
-    body_ast([Variable], Context);
-filter_ast_noescape(Variable, Filter, Context) ->
-    VariableAst = body_ast([Variable], Context),
-    VarValue = filter_ast1(Filter, VariableAst),
-    VarValue.
-
-filter_ast1([{identifier, _, Name} | Arg], VariableAst) ->
-    erl_syntax:application(erl_syntax:atom(erlydtl_filters), erl_syntax:atom(Name), 
-        [VariableAst | case Arg of 
-                [{string_literal, _, ArgName}] ->
-                    [erl_syntax:string(unescape_string_literal(ArgName))];
-                [{number_literal, _, ArgName}] ->
-                    [erl_syntax:integer(list_to_integer(ArgName))];
-                _ ->
-                    []
-            end]).
- 
-search_for_escape_filter(_, _, #dtl_context{auto_escape = on}) ->
-    on;
-search_for_escape_filter(_, _, #dtl_context{auto_escape = did}) ->
-    off;
-search_for_escape_filter(Variable, Filter, _) ->
-    search_for_escape_filter(Variable, Filter).
-
-search_for_escape_filter(_, [{identifier, _, "escape"}]) ->
-    on;
-search_for_escape_filter({apply_filter, Variable, Filter}, _) ->
-    search_for_escape_filter(Variable, Filter);
-search_for_escape_filter(_Variable, _Filter) ->
-    off.
-
-
-
-resolve_variable_ast(VarTuple, Context) ->
-    resolve_variable_ast(VarTuple, Context, 'fetch_value').
- 
-resolve_ifvariable_ast(VarTuple, Context) ->
-    resolve_variable_ast(VarTuple, Context, 'find_value').
-           
-resolve_variable_ast({attribute, {{identifier, _, AttrName}, Variable}}, Context, FinderFunction) ->
-    {VarAst, VarName} = resolve_variable_ast(Variable, Context, FinderFunction),
-    {erl_syntax:application(erl_syntax:atom(erlydtl_runtime), erl_syntax:atom(FinderFunction),
-                    [erl_syntax:atom(AttrName), VarAst]), VarName};
-
-resolve_variable_ast({variable, {identifier, _, VarName}}, Context, FinderFunction) ->
-    VarValue = case resolve_scoped_variable_ast(VarName, Context) of
-        undefined ->
-            erl_syntax:application(erl_syntax:atom(erlydtl_runtime), erl_syntax:atom(FinderFunction),
-                [erl_syntax:atom(VarName), erl_syntax:variable("Variables")]);
-        Val ->
-            Val
-    end,
-    {VarValue, VarName};
-
-resolve_variable_ast({apply_filter, Variable, Filter}, Context, FinderFunction) ->
-    {VarAst, VarName} = resolve_variable_ast(Variable, Context, FinderFunction),
-    VarValue = filter_ast1(Filter, erl_syntax:list([VarAst])),
-    {VarValue, VarName};
-
-resolve_variable_ast(What, _Context, _FinderFunction) ->
-   error_logger:error_msg("~p:resolve_variable_ast unhandled: ~p~n", [?MODULE, What]).
-
 resolve_scoped_variable_ast(VarName, Context) ->
     lists:foldl(fun(Scope, Value) ->
                 case Value of
-                    undefined -> proplists:get_value(list_to_atom(VarName), Scope);
+                    undefined -> proplists:get_value(VarName, Scope);
                     _ -> Value
                 end
         end, undefined, Context#dtl_context.local_scopes).
@@ -442,52 +323,29 @@ auto_escape(Value, Context) ->
     end.
 
 
-ifelse_ast(Variable, IfContentsAst, ElseContentsAst, Context) ->
-    {Ast, _VarName} = resolve_ifvariable_ast(Variable, Context),
-    erl_syntax:case_expr(erl_syntax:application(erl_syntax:atom(erlydtl_runtime), erl_syntax:atom(is_false), [Ast]),
-        [erl_syntax:clause([erl_syntax:atom(true)], none, 
+ifelse_ast(Expression, IfContentsAst, ElseContentsAst, Context) ->
+    Ast = resolve_expression(Expression, Context),
+    
+    erl_syntax:case_expr(erl_syntax:application(erl_syntax:atom(erlydtl_runtime), erl_syntax:atom(is_true), [Ast]),
+        [erl_syntax:clause([erl_syntax:atom(false)], none, 
                 [ElseContentsAst]),
             erl_syntax:clause([erl_syntax:underscore()], none,
                 [IfContentsAst])
         ]).
 
-        
-ifequalelse_ast(Args, IfContentsAst, ElseContentsAst, Context) ->
-    [Arg1Ast, Arg2Ast] = lists:foldl(fun
-            (X, Asts) ->
-                case X of
-                    {string_literal, _, Literal} ->
-                        [erl_syntax:string(unescape_string_literal(Literal)) | Asts];
-                    {number_literal, _, Literal} ->
-                        [erl_syntax:integer(list_to_integer(Literal)) | Asts];
-                    Variable ->
-                        {Ast, _VarName} = resolve_ifvariable_ast(Variable, Context),
-                        [Ast | Asts]
-                end                
-        end,
-        [],
-        Args),
-    erl_syntax:case_expr(erl_syntax:application(erl_syntax:atom(erlydtl_runtime), erl_syntax:atom(are_equal),
-            [Arg1Ast, Arg2Ast]),
-        [
-            erl_syntax:clause([erl_syntax:atom(true)], none, [IfContentsAst]),
-            erl_syntax:clause([erl_syntax:underscore()], none, [ElseContentsAst])
-        ]).
-
-
-for_loop_ast(IteratorList, Variable, Contents, Context) ->
+for_loop_ast(IteratorList, Expression, Contents, Context) ->
     Vars = lists:map(fun({identifier, _, Iterator}) -> 
                     erl_syntax:variable("Var_" ++ Iterator) 
             end, IteratorList),
     InnerAst = body_ast(Contents,
         Context#dtl_context{local_scopes = [
-                [{'forloop', erl_syntax:variable("Counters")} | lists:map(
+                [{"forloop", erl_syntax:variable("Counters")} | lists:map(
                     fun({identifier, _, Iterator}) ->
-                            {list_to_atom(Iterator), erl_syntax:variable("Var_" ++ Iterator)} 
+                            {Iterator, erl_syntax:variable("Var_" ++ Iterator)} 
                     end, IteratorList)] | Context#dtl_context.local_scopes]}),
     CounterAst = erl_syntax:application(erl_syntax:atom(erlydtl_runtime), 
         erl_syntax:atom(increment_counter_stats), [erl_syntax:variable("Counters")]),
-    {ListAst, _VarName} = resolve_variable_ast(Variable, Context),
+    ListAst = resolve_expression(Expression, Context),
     CounterVars0 = case resolve_scoped_variable_ast("forloop", Context) of
         undefined ->
             erl_syntax:application(erl_syntax:atom(erlydtl_runtime), erl_syntax:atom(init_counter_stats), [ListAst]);
@@ -508,68 +366,32 @@ for_loop_ast(IteratorList, Variable, Contents, Context) ->
                         CounterVars0, ListAst])]).
 
 cycle_ast(Names, Context) ->
-    NamesTuple = lists:map(fun({string_literal, _, Str}) ->
-                                   erl_syntax:string(unescape_string_literal(Str));
-                              ({variable, _}=Var) ->
-                                   {V, _} = resolve_variable_ast(Var, Context),
-                                   V;
-                              ({number_literal, _, Num}) ->
-                                   format(erl_syntax:integer(Num), Context);
-                              (_) ->
-                                   []
-                           end, Names),
+    NamesAst = resolve_expression(Names, Context),
     erl_syntax:application(
         erl_syntax:atom('erlydtl_runtime'), erl_syntax:atom('cycle'),
-        [erl_syntax:tuple(NamesTuple), erl_syntax:variable("Counters")]).
+        [NamesAst, erl_syntax:variable("Counters")]).
 
-%% Older Django templates treat cycle with comma-delimited elements as strings
-cycle_compat_ast(Names, _Context) ->
-    NamesTuple = [erl_syntax:string(X) || {identifier, _, X} <- Names],
-    erl_syntax:application(
-        erl_syntax:atom('erlydtl_runtime'), erl_syntax:atom('cycle'),
-        [erl_syntax:tuple(NamesTuple), erl_syntax:variable("Counters")]).
 
-now_ast(FormatString, _Context) ->
-    % Note: we can't use unescape_string_literal here
-    % because we want to allow escaping in the format string.
-    % We only want to remove the surrounding escapes,
-    % i.e. \"foo\" becomes "foo"
-    UnescapeOuter = string:strip(FormatString, both, 34),
-    erl_syntax:application(
-        erl_syntax:atom(erlydtl_dateformat),
-        erl_syntax:atom(format),
-        [erl_syntax:string(UnescapeOuter)]).
+resolve_expression({expression, Pos, Expression}, Context) ->
+    case erlang_el:compile(Expression, Pos, context_ast(Context)) of
+        {ok, Ast} -> Ast;
+        {error, _} = Error -> throw(Error)
+    end.
 
-unescape_string_literal(String) ->
-    unescape_string_literal(string:strip(String, both, 34), [], noslash).
-
-unescape_string_literal([], Acc, noslash) ->
-    lists:reverse(Acc);
-unescape_string_literal([$\\ | Rest], Acc, noslash) ->
-    unescape_string_literal(Rest, Acc, slash);
-unescape_string_literal([C | Rest], Acc, noslash) ->
-    unescape_string_literal(Rest, [C | Acc], noslash);
-unescape_string_literal("n" ++ Rest, Acc, slash) ->
-    unescape_string_literal(Rest, [$\n | Acc], noslash);
-unescape_string_literal("r" ++ Rest, Acc, slash) ->
-    unescape_string_literal(Rest, [$\r | Acc], noslash);
-unescape_string_literal("t" ++ Rest, Acc, slash) ->
-    unescape_string_literal(Rest, [$\t | Acc], noslash);
-unescape_string_literal([C | Rest], Acc, slash) ->
-    unescape_string_literal(Rest, [C | Acc], noslash).
-
-include_ast(Path, Context) ->
+context_ast(Context) ->
     Extension = 
         lists:foldl(fun(Scope, AccScope) ->
                             lists:foldl(fun({Key, Val}, Acc) ->
-                                            [erl_syntax:tuple([erl_syntax:atom(Key), Val])| Acc]
+                                            [erl_syntax:tuple([erl_syntax:string(Key), Val])| Acc]
                                         end, AccScope, Scope)
                     end, [], Context#dtl_context.local_scopes), 
-    NewContextAst = erl_syntax:application(erl_syntax:atom(erlydtl_runtime),
-                                           erl_syntax:atom(extend_dict),
-                                           [erl_syntax:variable("Variables"), 
-                                            erl_syntax:list(Extension)]),
-    include_ast(Path, NewContextAst, Context).
+    erl_syntax:application(erl_syntax:atom(erlydtl_runtime),
+                           erl_syntax:atom(extend_dict),
+                           [erl_syntax:variable("Variables"), 
+                            erl_syntax:list(Extension)]).
+
+include_ast(Path, Context) ->
+    include_ast(Path, context_ast(Context), Context).
 
 include_ast(Path, NewContextAst, Context) ->
     AppAst = erl_syntax:application(

@@ -25,6 +25,7 @@ dializer:
 
 test: compile
 	$(ERL) -noshell -pa ebin \
+	  -pa ../erlang-el/ebin \
 		-s erlydtl_dateformat_tests run_tests \
 		-s erlydtl_unittests run_tests \
 		-s erlydtl_functional_tests run_tests \

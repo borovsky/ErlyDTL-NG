@@ -103,7 +103,7 @@ set_block(BlockName, Content, Context) ->
 -spec(have_child_block/2 :: (string(), erlydtl_params()) ->
              boolean()).
 have_child_block(BlockName, Context) ->
-    case erlydtl_runtime:find_value(generate_block_name(BlockName), Context) of
+    case erlang_el_runtime:get_value(generate_block_name(BlockName), Context) of
         undefined -> false;
         _ -> true
     end.
@@ -116,7 +116,7 @@ have_child_block(BlockName, Context) ->
 %%--------------------------------------------------------------------
 -spec(render_block/2 :: (string(), erlydtl_params()) -> iolist()).
 render_block(BlockName, Context) ->
-    case erlydtl_runtime:find_value(generate_block_name(BlockName), Context) of
+    case erlang_el_runtime:get_value(generate_block_name(BlockName), Context) of
         undefined -> "";
         Val -> Val
     end.
